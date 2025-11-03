@@ -25,9 +25,9 @@ union vels {
 
 union vels str_to_vels(char *const text, uint8_t len) {
     const char sep = ' ';
- 
+
     uint8_t v = 1, seps[6] = {0};
-    for (uint i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++) {
         if (text[i] == sep) seps[v++] = i;
 
         if (text[i] == '\0') break;
@@ -35,7 +35,7 @@ union vels str_to_vels(char *const text, uint8_t len) {
     }
 
     union vels vels{0};
-    for (uint i = 0; i < LEN(seps); i++) {
+    for (size_t i = 0; i < LEN(seps); i++) {
         vels.raw[i] = atoi(&text[seps[i]]);
     }
     return vels;
@@ -76,9 +76,9 @@ void loop() {
 
     move(vel_rodas.esq, vel_rodas.dir);
     hite(vel_esc.esq);
-    
+
     //! print
-    Serial.printf("vels %d %d, esc %d %d, não usado %d %d\n",
+    Serial.printf("vels %d %d, esc %d %d, n/a %d %d\n",
                   vel_rodas.esq, vel_rodas.dir,
                   vel_esc.esq, vel_esc.dir,
                   extra.esq, extra.dir);
