@@ -4,6 +4,8 @@
 #define MIXAR
 #define RECALIBRAR
 
+#define INVERTER_ESQ_DIR
+
 #define BAUD_RATE 9600
 #define ADC_MAX ((1<<12)-1)
 
@@ -106,7 +108,11 @@ void loop() {
     struct par vel = mixar(pos_pwm.x, pos_pwm.y);
 
     char vels[255];
-    sprintf(vels, "%d %d\n", vel.x, vel.y);
+  #ifndef INVERTER_ESQ_DIR
+    sprintf(vels, "%d %d\n", vel.esq, vel.dir);
+  #else
+    sprintf(vels, "%d %d\n", vel.dir, vel.esq);
+  #endif
     esp_err_t err = send_str(PEER_ADDR, vels);
 
     Serial.printf("%5d,%5d: ", pos.x, pos.y);
