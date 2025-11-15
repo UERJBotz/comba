@@ -5,18 +5,28 @@
 #define SUAVIZAR
 #define RECALIBRAR
 
-#define INVERTER_ESQ_DIR
+#define DEBUG_INTERRUPTORES
+#define DEBUG_JOY_CONV
 
 #define BAUD_RATE 9600
 #define ADC_MAX ((1<<12)-1)
 #define ADC_MID (ADC_MAX/2)
 
-//#define PWM_MAX ((1<<10)-1)
-#define PWM_MAX 127
+//#define PWM_MAX ((1<<10)-1) /*1023*/
+#define PWM_MAX 127 /*((1<<7)-1)*/
 
 #define EIXO_X 2
 #define EIXO_Y 1
 #define BOTAO  9
+
+#define INTERRUPTOR_INVERTER_ESQ_DIR 8
+#define __INTERRUPTOR_MIXAR          7 /*! implementar */
+#define INTERRUPTOR_ARMA             6
+#define INTERRUPTOR_ARMA_SEC         5
+// #define EIXO_ARMA     6
+// #define EIXO_ARMA_SEC 5
+//! trocar pra EIXO_ARMA[_SEC], INTERRUPTOR_ARMA[_SEC] por
+////! EIXO_ARMA[_SEC], ifdef ARMA[_SEC]_DIGITAL
 
 #define PEER_ADDR broadcast
 
@@ -24,6 +34,8 @@ struct par {
     union {
         struct { int16_t x, y; };
         struct { int16_t esq, dir; };
+        struct { int16_t a, b; };
+        int16_t arr[2];
     };
 };
 
@@ -31,6 +43,12 @@ struct par {
   const struct par PONTO_ZERO = { .x = 2815, .y = 2290 };
 #else
   struct par PONTO_ZERO;
+#endif
+
+#ifdef INTERRUPTOR_INVERTER_ESQ_DIR
+  bool inverter_esq_dir = false;
+#else
+  const bool inverter_esq_dir = false;
 #endif
 
 volatile bool inverter = false;
@@ -47,6 +65,24 @@ void setup() {
     pinMode(EIXO_X, INPUT);
     pinMode(EIXO_Y, INPUT);
     pinMode(BOTAO, INPUT);
+
+  #if defined(INTERRUPTOR_INVERTER_ESQ_DIR)
+    pinMode(INTERRUPTOR_INVERTER_ESQ_DIR, INPUT_PULLDOWN);
+  #endif
+  #if defined(INTERRUPTOR_INVERTER)
+    pinMode(INTERRUPTOR_INVERTER, INPUT_PULLDOWN);
+  #endif
+
+  #if   defined(INTERRUPTOR_ARMA)
+    pinMode(INTERRUPTOR_ARMA, INPUT_PULLDOWN);
+  #elif defined(EIXO_ARMA)
+    pinMode(EIXO_ARMA, INPUT);
+  #endif
+  #if   defined(INTERRUPTOR_ARMA_SEC)
+    pinMode(INTERRUPTOR_ARMA_SEC, INPUT_PULLDOWN);
+  #elif defined(EIXO_ARMA_SEC)
+    pinMode(EIXO_ARMA_SEC, INPUT);
+  #endif
 
   #ifdef RECALIBRAR
     PONTO_ZERO = (struct par){
@@ -78,7 +114,7 @@ void setup() {
 
 void loop() {
     static const char sentinel = '\n';
-    static char input[255] = {0};
+    static char input[256] = {0};
     for (auto buf = input; Serial.available(); buf++) {
         *buf = (char) Serial.read();
         if (*buf == sentinel) {
@@ -92,13 +128,20 @@ void loop() {
         }
     }
 
-    //bool inverter = !digitalRead(BOTAO);
+  #ifdef INTERRUPTOR_INVERTER_ESQ_DIR
+    inverter_esq_dir = digitalRead(INTERRUPTOR_INVERTER_ESQ_DIR);
+  #endif
+  #ifdef INTERRUPTOR_INVERTER
+    inverter = digitalRead(INTERRUPTOR_INVERTER);
+  #endif
+
+    struct par arma = vels_arma();
 
     struct par pos = {
         .x = analogRead(EIXO_X),
         .y = analogRead(EIXO_Y),
     };
-    struct par pos_norm = deadzone(pos.x, pos.y);
+    struct par pos_norm  = deadzone(pos.x, pos.y);
     struct par pos_suave = suavizar(pos_norm.x, pos_norm.y);
     struct par pos_pwm = {
         .x = adc_to_pwm(pos_suave.x),
@@ -110,18 +153,26 @@ void loop() {
     }
     struct par vel = mixar(pos_pwm.x, pos_pwm.y);
 
-    char vels[255];
-  #ifndef INVERTER_ESQ_DIR
-    sprintf(vels, "%d %d\n", vel.esq, vel.dir);
-  #else
-    sprintf(vels, "%d %d\n", vel.dir, vel.esq);
-  #endif
+    char vels[255], *next = vels;
+    if (inverter_esq_dir) next += sprintf(next, "%d %d ", vel.esq, vel.dir);
+    else                  next += sprintf(next, "%d %d ", vel.dir, vel.esq);
+    #if defined(INTERRUPTOR_ARMA) || defined(INTERRUPTOR_ARMA_SEC)
+        next += sprintf(next, "%d %d", arma.a, arma.b);
+    #endif
+    next += sprintf(next, "\n");
+
     esp_err_t err = send_str(PEER_ADDR, vels);
 
-    Serial.printf("%5d,%5d: ", pos.x, pos.y);
-    Serial.printf("%5d,%5d: ", pos_norm.x, pos_norm.y);
-    Serial.printf("%5d,%5d: ", pos_pwm.x, pos_pwm.y);
-    Serial.printf("%5d,%5d " , vel.esq, vel.dir);
+    #ifdef DEBUG_INTERRUPTORES
+        Serial.printf("%2d,%2d,%5d,%5d: ", inverter_esq_dir, inverter, arma.a, arma.b);
+    #endif
+
+    #ifdef DEBUG_JOY_CONV
+        Serial.printf("%5d,%5d: ", pos.x, pos.y);
+        Serial.printf("%5d,%5d: ", pos_norm.x, pos_norm.y);
+        Serial.printf("%5d,%5d: ", pos_pwm.x, pos_pwm.y);
+        Serial.printf("%5d,%5d " , vel.esq, vel.dir);
+    #endif
     if (err == ESP_OK) Serial.printf("-> Joystick: success\n");
     else               Serial.printf("-> Joystick: error\n");
 }
@@ -133,10 +184,29 @@ esp_err_t send_str(uint8_t addr[6], const char* str) {
     };
     strcpy(msg.vels, str);
 
-    uint8_t*  ptr = (uint8_t*) &msg;
+    uint8_t*  ptr = (uint8_t*)&msg;
     esp_err_t err = esp_now_send(addr, ptr, sizeof(msg));
 
     return err;
+}
+
+struct par vels_arma() {
+    int16_t vel_arma = 0;
+    int16_t vel_arma_sec = 0;
+
+  #if   defined(INTERRUPTOR_ARMA)
+    vel_arma = digital_to_pwm(digitalRead(INTERRUPTOR_ARMA));
+  #elif defined(EIXO_ARMA)
+    vel_arma = adc_to_pwm(analogRead(EIXO_ARMA));
+  #endif
+
+  #if   defined(INTERRUPTOR_ARMA_SEC)
+    vel_arma_sec = digital_to_pwm(digitalRead(INTERRUPTOR_ARMA_SEC));
+  #elif defined(EIXO_ARMA_SEC)
+    vel_arma_sec = adc_to_pwm(analogRead(EIXO_ARMA_SEC));
+  #endif
+
+  return { .a = vel_arma, .b = vel_arma_sec };
 }
 
 struct par deadzone(int16_t x, int16_t y) {
@@ -156,16 +226,14 @@ struct par suavizar(int32_t x, int32_t y) {
     // isso segue a curva f(x) = ((x/MAX)²)*MAX = x²/MAX
     // olha no geogebra, comparando com f(x) = x
     return {
-        .x = (int16_t)(x*x/ADC_MID),
-        .y = (int16_t)(y*y/ADC_MID),
+        .x = (int16_t)(x*x/ADC_MAX),
+        .y = (int16_t)(y*y/ADC_MAX),
     };
   #else
     return { .x = x, .y = y };
   #endif
 }
-int16_t adc_to_pwm(unsigned long adc) {
-    return map(adc, 0,ADC_MAX, -PWM_MAX,PWM_MAX);
-}
+
 struct par mixar(int16_t x, int16_t y) {
   #ifdef MIXAR
     return {
@@ -175,4 +243,11 @@ struct par mixar(int16_t x, int16_t y) {
   #else
     return { .esq = x, .dir = y };
   #endif
+}
+
+int16_t digital_to_pwm(bool d) {
+    return d ? PWM_MAX : -PWM_MAX;
+}
+int16_t adc_to_pwm(unsigned long adc) {
+    return map(adc, 0,ADC_MAX, -PWM_MAX,PWM_MAX);
 }
