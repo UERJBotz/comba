@@ -85,9 +85,9 @@ void setup() {
   #endif
 
   #ifdef RECALIBRAR
-    PONTO_ZERO = (struct par){
-        .x = analogRead(EIXO_X),
-        .y = analogRead(EIXO_Y),
+    PONTO_ZERO = {
+        .x = (int16_t)analogRead(EIXO_X),
+        .y = (int16_t)analogRead(EIXO_Y),
     };
   #endif
 
@@ -98,6 +98,8 @@ void setup() {
     Serial.printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
                   mac_addr[0], mac_addr[1], mac_addr[2],
                   mac_addr[3], mac_addr[4], mac_addr[5]);
+
+    Serial.printf("PONTO ZERO: %d, %d", PONTO_ZERO.x, PONTO_ZERO.y);
 
     static esp_now_peer_info_t peer {
         .channel = 0,
@@ -138,11 +140,12 @@ void loop() {
     struct par arma = vels_arma();
 
     struct par pos = {
-        .x = analogRead(EIXO_X),
-        .y = analogRead(EIXO_Y),
+        .x = (int16_t)analogRead(EIXO_X),
+        .y = (int16_t)analogRead(EIXO_Y),
     };
     struct par pos_norm  = deadzone(pos.x, pos.y);
-    struct par pos_suave = suavizar(pos_norm.x, pos_norm.y);
+    struct par pos_sinal = sinalizar(pos_norm.x, pos_norm.y);
+    struct par pos_suave = suavizar(pos_sinal.x, pos_sinal.y);
     struct par pos_pwm = {
         .x = adc_to_pwm(pos_suave.x),
         .y = adc_to_pwm(pos_suave.y),
@@ -220,17 +223,23 @@ struct par deadzone(int16_t x, int16_t y) {
              map(y, 0,     zero.y,  0,       ADC_MAX/2),
     };
 }
+struct par sinalizar(int16_t x, int16_t y) {
+    return {
+        .x = map(x, 0,ADC_MAX, -ADC_MAX,ADC_MAX),
+        .y = map(y, 0,ADC_MAX, -ADC_MAX,ADC_MAX),
+    };
+}
 
 struct par suavizar(int32_t x, int32_t y) {
   #ifdef SUAVIZAR
-    // isso segue a curva f(x) = ((x/MAX)²)*MAX = x²/MAX
+    // isso segue a curva f(x) = ((x/MAX)²)*MAX = x²/MAX (mas com sinal)
     // olha no geogebra, comparando com f(x) = x
     return {
-        .x = (int16_t)(x*x/ADC_MAX),
-        .y = (int16_t)(y*y/ADC_MAX),
+        .x = (int16_t)(x*abs(x)/ADC_MAX),
+        .y = (int16_t)(y*abs(y)/ADC_MAX),
     };
   #else
-    return { .x = x, .y = y };
+    return { .x = (int16_t)x, .y = (int16_t)y };
   #endif
 }
 
@@ -248,6 +257,6 @@ struct par mixar(int16_t x, int16_t y) {
 int16_t digital_to_pwm(bool d) {
     return d ? PWM_MAX : -PWM_MAX;
 }
-int16_t adc_to_pwm(unsigned long adc) {
-    return map(adc, 0,ADC_MAX, -PWM_MAX,PWM_MAX);
+int16_t adc_to_pwm(int16_t adc) {
+    return map(adc, -ADC_MAX,ADC_MAX, -PWM_MAX,PWM_MAX);
 }
