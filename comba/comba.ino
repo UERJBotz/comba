@@ -1,14 +1,10 @@
-#define COMBA
-
 #include <Arduino.h>
-#include "comms.h"
+
+//#define CONTROLE controle_branco_1_joystick
 #define VEL_MAX 127
-#define LED D4
-#define motor_esq_m1 D5
-#define motor_esq_m2 D6
-#define motor_dir_m1 D7
-#define motor_dir_m2 D8
-#include "robot.h"
+#include "gesonel.h" // esse include muda os pinos do robô
+#include "robot.h"   // esse tem uma implementação genérica dos robôs
+#include "_comms.h"
 
 #define BAUD_RATE 115200
 #define IDX_VEL 0
@@ -43,27 +39,25 @@ union vels str_to_vels(char *const text, uint8_t len) {
 
 union vels vels{0};
 unsigned long t_recv = 0;
-void on_recv(const uint8_t* mac, const uint8_t* data, int len) {
+void on_recv(const esp_now_recv_info_t* info, const uint8_t* data, esp_now_len_t len) {
     Packet* msg = (Packet*) (void*)data;
     if (msg->id != 0) return; //!
 
-    if (!memeql(mac, controle, sizeof(controle))) return;
+  #ifdef CONTROLE
+    if (!memeql(info->src_addr, CONTROLE, sizeof(CONTROLE))) return;
+  #else
+    #warning "aceitando conexão de qualquer controle"
+  #endif
 
     t_recv = millis();
     vels = str_to_vels(msg->vels, msg->len);
 }
 
 void setup() {
-    robot_setup();
-    init_wifi();
-    uint8_t* mac_addr = get_mac_addr();
-
     Serial.begin(BAUD_RATE);
-    Serial.printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-                  mac_addr[0], mac_addr[1], mac_addr[2],
-                  mac_addr[3], mac_addr[4], mac_addr[5]);
 
-    esp_now_register_recv_cb(esp_now_recv_cb_t(on_recv));
+    robot_setup();
+    espnow_setup(on_recv);
 }
 
 void loop() {
@@ -80,8 +74,8 @@ void loop() {
     //! print
     Serial.printf("vels %d %d, esc %d %d, n/a %d %d\n",
                   vel_rodas.esq, vel_rodas.dir,
-                  vel_esc.esq, vel_esc.dir,
-                  extra.esq, extra.dir);
+                  vel_esc.esq,   vel_esc.dir,
+                  extra.esq,     extra.dir);
 
     yield();
 }
