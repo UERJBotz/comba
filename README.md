@@ -1,10 +1,11 @@
-# comba
+# rc
 
-Repositório com código para robôs rc (principalmente combate) usando esp-now como protocolo de comunicação.
+Repositório com código para radiocontrole dos robôs da equipe usando esp-now como protocolo de comunicação.
+Outros modos de comunicação (bluetooth clássico, ble, wifi, ir, via receptor de rádio) são planejados.
 
-Eventualmente se separará em projetos distintos para comunicação e robôs específicos, além do controle.
+Eventualmente talvez se separe em projetos distintos para comunicação, robôs e controle.
 
-## setape
+## ressalvas
 
-Se tiver usando esp8266, os imports relativos não funcionam. tem que mover as headers pra dentro da pasta do projeto específico.
-
+Se tiver usando um esp8266, os imports relativos não funcionam.
+Tem que mover as headers comuns pra dentro da pasta do projeto específico quando for compilar.
